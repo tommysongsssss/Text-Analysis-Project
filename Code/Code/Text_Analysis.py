@@ -7,7 +7,7 @@ import json, os
 
 #This explains which WCF it is and the JSONL and the Season
 JSONL = "harden_2018_season_vs_playoff.jsonl"
-SEASON = "2017–18 Houston Rockets season"
+SEASON = "2017-18 Houston Rockets season"
 WCF    = "2018 Western Conference Finals"
 
 # This is a stop list provided by chatgpt to remove common words from analysis
@@ -19,9 +19,12 @@ STOP = {
     "within","without","between","about","also","such","there","here","up","down"
 }
 
-#Loads JSON lines from a file and returns a dictionary of titles and their corresponding content
-#Using UTF-8 to read special characters from the documents
 def load_jsonl(path=JSONL):
+    """Load a JSONL file and return a dictionary mapping title → content.
+
+    Reads UTF-8 to support special characters in Wikipedia text.
+    Each line is parsed as a JSON object containing "title" and "content".
+    """
     docs = {}
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
@@ -31,40 +34,56 @@ def load_jsonl(path=JSONL):
                 docs[title] = obj.get("content", "")
     return docs
 
-# The following are very basic NPL functions for tokenization, which creates a list of words
 def tokens(text):
+    """Tokenize text into cleaned, lowercase words.
+
+    Steps:
+        - Split on whitespace
+        - Remove punctuation characters
+        - Convert to lowercase
+        - Remove stopwords and single-character tokens
+    Returns:
+        A list of valid tokens.
+    """
     out = []
     for w in text.split():
-        #This code here will strip punctuation and also convert the words to lowercase
         w = w.strip(".,!?;:\"()[]{}<>''``“”’").lower()
-        #This code will filter out stop words and single character words
         if w and w not in STOP and len(w) > 1:
             out.append(w)
     return out
 
-
-#This will build a bag of words from a string of text
 def bow(text):
+    """Return a bag-of-words Counter for the given text using tokenized words."""
     return Counter(tokens(text))
 
-#This function will return the top 15 most common words
 def top_n(c, n=15):
+    """Return the top n most common words from a Counter."""
     return c.most_common(n)
 
-#Suggested by Chatgpt, this function will find words that are frequent in one document but not in another
-#Words in A but not freqeuent in B
-#Return will be a list of tuples (word, count)
 def unique_freq(a, b, thr=5):
+    """Find words frequent in document A but not in B.
+
+    Args:
+        a, b: Counter objects
+        thr: minimum count threshold
+
+    Returns:
+        List of (word, count) pairs sorted by frequency.
+    """
     items = [(w, ca) for w, ca in a.items() if ca >= thr and b.get(w, 0) < thr]
     items.sort(key=lambda x: x[1], reverse=True)
     return items
 
-#Suggested by Chatgpt
-#Compute dot(a, b) / (||a|| * ||b||)
-#dot(a, b) = sum over shared words of a[w] * b[w]
-#  ||a||     = sqrt( sum of (a[w]^2) for all w in a )
-#  ||b||     = likewise for b
 def cosine(a, b):
+    """Compute cosine similarity between two bag-of-words Counters.
+
+    Formula:
+        dot(a, b) / (||a|| * ||b||)
+
+    Notes:
+        - dot product sums shared word contributions
+        - learned from online/AI examples
+    """
     if not a or not b: return 0.0
     dot = sum(a[w]*b.get(w,0) for w in a)
     na  = sqrt(sum(v*v for v in a.values()))
@@ -72,6 +91,12 @@ def cosine(a, b):
     return 0.0 if na==0 or nb==0 else dot/(na*nb)
 
 def proper_names(text, k=15):
+    """Return the top-k capitalized words interpreted as proper names.
+
+    A word qualifies if:
+        - It begins with an uppercase letter (Python's istitle())
+        - Has length ≥ 3
+    """
     c = Counter()
     for w in text.split():
         w = w.strip(".,!?;:\"()[]{}<>''``“”’")
@@ -80,26 +105,27 @@ def proper_names(text, k=15):
     return c.most_common(k)
 
 def bar(x, scale=20):
+    """Return a simple bar made of unicode blocks scaled to x (0–1 range)."""
     return "█" * int(round(x*scale))
 
-
-# This part will be the main anaylsis 
-# 1. Build bag of words for each document 
-# 2. Print two words from each document 
-# 3. Print words that are freqeunt in Season but not in the WCF
-# 4. Print cosine for three pairs
-# 5. Print top proper names 
-
-#1
 def analyze(docs):
+    """Run the full textual analysis workflow.
+
+    Steps:
+        1. Build bag-of-words for all documents.
+        2. Print top frequent words per document.
+        3. Print words frequent in Season but not WCF (and vice versa).
+        4. Compute cosine similarity for key document pairs.
+        5. Extract and print top proper names.
+    """
     bows = {t: bow(txt) for t, txt in docs.items()}
-#2
+
     print("\n=== Top Words per Document ===")
     for t, c in bows.items():
         print(f"\n{t}")
         for w, n in top_n(c, 15):
             print(f"  {w:<18} {n}")
-#3
+
     if SEASON in bows and WCF in bows:
         print("\n=== Frequent in SEASON but not WCF (thr=5) ===")
         for w, n in unique_freq(bows[SEASON], bows[WCF], 5)[:20]:
@@ -108,22 +134,28 @@ def analyze(docs):
         print("\n=== Frequent in WCF but not SEASON (thr=5) ===")
         for w, n in unique_freq(bows[WCF], bows[SEASON], 5)[:20]:
             print(f"  {w:<18} {n}")
-#4
+
     print("\n=== Cosine Similarity ===")
     pairs = [("James Harden", SEASON), ("James Harden", WCF), (SEASON, WCF)]
     for a, b in pairs:
         if a in bows and b in bows:
             s = cosine(bows[a], bows[b])
             print(f"  {a} ↔ {b}\n    {s:.3f} {bar(s)}")
-#5
+
     print("\n=== Proper Names (top 15) ===")
     for t, txt in docs.items():
         print(f"\n{t}")
         for name, n in proper_names(txt, 15):
             print(f"  {name:<18} {n}")
 
-# The code below will run the code diretly without having to connect to other py documents
 def main():
+    """Load JSONL file and run the Harden season vs WCF text analysis.
+
+    Ensures:
+        - JSONL exists
+        - At least one document is successfully loaded
+    Then calls analyze().
+    """
     if not os.path.exists(JSONL):
         print("[error] JSONL not found. Run Part 1 first.")
         return
