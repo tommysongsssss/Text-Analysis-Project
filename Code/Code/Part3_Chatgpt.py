@@ -50,7 +50,11 @@ _NL  = re.compile(r"\n+")
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 def find_jsonl() -> str:
-    """Look for JSONL in current folder, then parent folder."""
+    """Return the path to the JSONL file, checking current and parent directory.
+
+    Checks two candidate paths (local folder and parent folder). If neither exists,
+    returns the default expected location in the current folder.
+    """
     candidates = [
         os.path.join(HERE, JSONL_NAME),
         os.path.join(HERE, "..", JSONL_NAME),
@@ -65,6 +69,10 @@ def find_jsonl() -> str:
 # Following function cleans the text by removing citations and replacing newlines with spaces.
 
 def clean_text(text: str) -> str:
+    """Remove bracketed citations like [1] and collapse repeated newlines into spaces.
+
+    Returns cleaned text. Empty input returns an empty string.
+    """
     if not text:
         return ""
     text = _CIT.sub("", text)
@@ -72,10 +80,19 @@ def clean_text(text: str) -> str:
     return text.strip()
 
 def fetch_page(title: str):
+    """Fetch a Wikipedia page object using the MediaWiki package."""
     wiki = MediaWiki()
     return wiki.page(title)
 
 def harvest_titles(titles: List[str], preview_chars: int = 600) -> Dict[str, str]:
+    """
+    Download Wikipedia pages, print short previews, clean text, and return a dict.
+     Args:
+        titles: list of Wikipedia page titles to fetch.
+        preview_chars: number of characters to preview in console.
+    Returns:
+        Dict mapping page title → cleaned text.
+    """
     docs: Dict[str, str] = {}
     for t in titles:
         page = fetch_page(t)
@@ -85,11 +102,21 @@ def harvest_titles(titles: List[str], preview_chars: int = 600) -> Dict[str, str
     return docs
 
 def save_jsonl(docs: Dict[str, str], path: str):
+    """
+    Save documents to a JSONL file, one JSON object per line.
+
+    Note:
+        JSONL-saving logic was learned from AI/online tutorials.
+    """
     with open(path, "w", encoding="utf-8") as f:
         for title, content in docs.items():
             f.write(json.dumps({"title": title, "content": content}, ensure_ascii=False) + "\n")
 
 def ensure_jsonl(path: str):
+    """
+    Ensure the JSONL exists; if not, download pages and write them to disk.
+    """
+
     if os.path.exists(path):
         print(f"[info] using existing JSONL at {path}")
         return
@@ -101,6 +128,11 @@ def ensure_jsonl(path: str):
 #Following function loads JSON lines from a file and returns a dictionary of titles and their corresponding content
 
 def load_jsonl(path: str):
+     
+    """
+    Load a JSONL file and return a dict of title → content strings.
+    """
+
     docs = {}
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
@@ -111,6 +143,10 @@ def load_jsonl(path: str):
     return docs
 
 def tokens(text):
+
+    """
+    Tokenize text into lowercase words, removing punctuation and custom stopwords.
+    """
     out = []
     for w in text.split():
         w = w.strip(".,!?;:\"()[]{}<>''``“”’").lower()
@@ -119,17 +155,29 @@ def tokens(text):
     return out
 
 def bow(text):
+    """
+    Build a bag-of-words Counter from text tokens.
+    """
     return Counter(tokens(text))
 
 def top_n(c, n=15):
+    """
+    Return the top-n most common elements from a Counter.
+    """
     return c.most_common(n)
 
 def unique_freq(a, b, thr=5):
+    """
+    Return items frequent in dict a but not in b, based on a threshold.
+    """
     items = [(w, ca) for w, ca in a.items() if ca >= thr and b.get(w, 0) < thr]
     items.sort(key=lambda x: x[1], reverse=True)
     return items
 
 def cosine(a, b):
+    """
+    Compute cosine similarity between two bag-of-words Counters.
+    """
     if not a or not b:
         return 0.0
     dot = sum(a[w]*b.get(w,0) for w in a)
@@ -138,6 +186,9 @@ def cosine(a, b):
     return 0.0 if na==0 or nb==0 else dot/(na*nb)
 
 def proper_names(text, k=15):
+    """
+    Extract top-k capitalized words (length ≥ 3) interpreted as proper names.
+    """
     c = Counter()
     for w in text.split():
         w = w.strip(".,!?;:\"()[]{}<>''``“”’")
@@ -146,17 +197,26 @@ def proper_names(text, k=15):
     return c.most_common(k)
 
 def bar(x, scale=20):
+    """
+    Return a simple unicode bar proportional to similarity score.
+    """
     return "█" * int(round(x * scale))
 
 # Following function ensures that the figures directory exists
 
 def ensure_fig_dir():
+    """
+    Ensure that a ./figures directory exists; create it if needed and return path.
+    """
     figdir = os.path.join(HERE, "figures")
     if not os.path.exists(figdir):
         os.makedirs(figdir)
     return figdir
 
 def slugify(s: str) -> str:
+    """
+    Convert a title string into a filesystem-safe slug for filenames.
+    """
     return (
         s.lower()
          .replace(" ", "_")
@@ -168,9 +228,15 @@ def slugify(s: str) -> str:
     )
 
 def shorten(s: str, maxlen=30) -> str:
+    """
+    Shorten string for display if longer than maxlen.
+    """
     return s if len(s) <= maxlen else s[:maxlen-3] + "..."
 
 def plot_top_words_per_doc(bows, top=15):
+    """
+    Generate horizontal bar charts of top words per document and save to ./figures.
+    """
     figdir = ensure_fig_dir()
     for title, counter in bows.items():
         common = counter.most_common(top)
@@ -187,6 +253,9 @@ def plot_top_words_per_doc(bows, top=15):
         plt.close()
 
 def plot_season_vs_wcf(bows, thr=5, top=20):
+    """
+    Plot words frequent in the SEASON doc but not WCF (and vice versa).
+    """
     if SEASON not in bows or WCF not in bows:
         return
     figdir = ensure_fig_dir()
@@ -225,6 +294,9 @@ def plot_season_vs_wcf(bows, thr=5, top=20):
         plt.close()
 
 def plot_cosine_heatmap(bows):
+    """
+    Plot a cosine similarity heatmap comparing all documents.
+    """
     figdir = ensure_fig_dir()
     titles = list(bows.keys())
     n = len(titles)
@@ -245,6 +317,9 @@ def plot_cosine_heatmap(bows):
     plt.close()
 
 def plot_proper_names_all(docs):
+    """
+    Plot bar charts of the top proper names for each document.
+    """
     figdir = ensure_fig_dir()
     for title, text in docs.items():
         names = proper_names(text, 15)
@@ -263,6 +338,9 @@ def plot_proper_names_all(docs):
 #Following is the main function that runs the entire analysis
 
 def main():
+    """
+    Plot bar charts of the top proper names for each document.
+    """
     # 1) find / make JSONL
     jsonl_path = find_jsonl()
     ensure_jsonl(jsonl_path)
